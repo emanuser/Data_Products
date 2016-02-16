@@ -1,0 +1,145 @@
+---
+title: "Eq_Clusters"
+author: "Thomas Dolgos"
+date: "February 16, 2016"
+output: html_document
+---
+
+
+
+
+```{r, echo=TRUE}
+require(leaflet)
+require(shiny)
+
+require(sp)
+require(rgdal)
+require(geospacom)
+require(raster)
+require(geosphere)
+require(shiny)
+require(leaflet)
+require(jsonlite)
+
+
+ui <- navbarPage("Earthquake Hazard Maps",
+                 tabPanel("Earthquakes and Geographic Features", 
+                          titlePanel("Earthquakes and Geographic Features "), 
+                          leafletOutput("map"),
+                          helpText("Drop down menu is in upper right hand corner"),
+                          helpText("Hover mouse to open menu"),
+                          helpText("Click checkboxes to turn data layers on and off."),
+                          helpText("Zoom in and out to change earthquake cluster level."),
+                          helpText("Click mouse on cluster marker to quick zoom"),
+                          helpText("Click mouse on blue marker to view information on type of event magnitude and location.")),
+                 
+                 tabPanel("Earthquake Heat Map",  
+                          titlePanel("Earthquake Heat Map"),
+                        
+                          helpText("Scroll to change zoom"),
+                          helpText("Heat map is a representation of magnitude and frequency"),
+                          mainPanel( fluidRow(                    
+                            tags$iframe(seamless="seamless",
+                                        src="https://emanresu.shinyapps.io/HeatMap/", 
+                                        height=600, width=1700)))
+                 ),
+                 
+                 tabPanel("About", 
+                          titlePanel("About this Application"),
+                          h4("This application is a set of basic seismic hazard assessment maps. The maps utilize a number of different primary data sources, including 30 day seismic event activity from the USGS website. Along with, fault, subduction zone, and volcano locations. These data sets, allow for an intuitive understanding of the intensity and frequency of earthquakes by location.
+"),
+                          h4("Prubs presentation"),
+                          h5("http://rpubs.com/emanresU/Seismic_Hazard_Map"))
+                         
+                  )
+
+
+require(downloader)
+tf <- tempfile(fileext = ".zip")
+download("http://legacy.jefferson.kctcs.edu/techcenter/gis%20data/World/Zip/VOLCANO.zip", tf)
+ex = tempdir()
+unzip(tf, exdir = ex)
+vol = file.path(ex,"VOLCANO.SHP")
+volcano <- readOGR(vol, ogrListLayers(vol)[1])
+
+tf <- tempfile(fileext = ".zip")
+download("http://legacy.jefferson.kctcs.edu/techcenter/gis%20data/World/Zip/PLAT_LIN.zip", tf)
+ex = tempdir()
+unzip(tf, exdir = ex)
+pla = file.path(ex,"PLAT_LIN.SHP")
+plates <- readOGR(pla, ogrListLayers(pla)[1])
+
+tf <- tempfile(fileext = ".zip")
+download("http://legacy.jefferson.kctcs.edu/techcenter/gis%20data/World/Zip/FAULTS.zip", tf)
+ex = tempdir()
+unzip(tf, exdir = ex)
+fal = file.path(ex,"FAULTS.SHP")
+FAULTS <- readOGR(fal, ogrListLayers(fal)[1])
+
+
+
+
+PastMonth<- function(Int.) {
+  require(RCurl)
+  require(data.table)
+  require(lubridate)
+  require(sp)
+  URL <- Int.
+  x <- getURL(URL)
+  out <- read.csv(textConnection(x))
+  
+  out$time <- gsub("T", " ", as.character(out$time))
+  
+  out$time <-ymd_hms(out$time)
+  
+  Quake <- as.data.table(out)
+  Quake$locationSource <- as.character(Quake$locationSource)
+  
+  Quake[, "tip":= paste(type, mag, place, sep = ", " )]
+  Quake <- as.data.frame(Quake)
+  
+  
+  
+}
+
+
+server <- function(input, output, session) {
+  EQ.data.30 <-  PastMonth("http://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv")
+  coordinates(EQ.data.30)=~longitude+latitude
+  output$page1 <- output$map <- renderLeaflet({
+    # Use leaflet() here, and only include aspects of the map that
+    # won't need to change dynamically (at least, not unless the
+    # entire map is being torn down and recreated).
+    if (is.null(EQ.data.30)) return()
+    leaflet(EQ.data.30) %>% addTiles() %>%
+      fitBounds(~min(EQ.data.30$longitude), ~min(EQ.data.30$latitude), ~max(EQ.data.30$longitude), ~max(EQ.data.30$latitude)) })
+  
+  observe({
+    leafletProxy("map")%>%
+      addMarkers(data = EQ.data.30, popup = EQ.data.30$tip, 
+                 group = "Earthquakes", clusterOptions = markerClusterOptions()) %>%
+      addCircleMarkers(data = volcano, group = "Volcanos", radius = 2,color = "red", weight = 2, opacity = 0.2) %>%
+      addPolylines(data = plates, group = "Subduction Zone", stroke = T, 
+                   color = "black", weight = 2, opacity = 0.2, dashArray = NULL, smoothFactor = 2) %>%
+      addPolylines(data = FAULTS, group = "Fault Lines",  stroke = T, 
+                   color = "gray", weight = 2, opacity = 0.5, dashArray = NULL, smoothFactor = 2) %>%
+      # Layers control
+      addLayersControl(
+        overlayGroups = c("Earthquakes", "Volcanos", "Subduction Zone", "Fault Lines"),
+        options = layersControlOptions(collapsed = T)
+      )
+  })
+  
+
+ 
+  
+  
+}
+
+
+shinyApp(ui, server)
+
+
+```
+
+
