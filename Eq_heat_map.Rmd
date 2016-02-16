@@ -1,0 +1,96 @@
+---
+title: "Eq_heat_map"
+author: "Thomas Dolgos"
+date: "February 16, 2016"
+output: html_document
+---
+
+
+
+```{r, echo=TRUE}
+
+require(sp)
+require(rgdal)
+require(raster)
+require(jsonlite)
+require(shiny)
+require(rCharts)
+
+PastMonth<- function(Int.) {
+  require(RCurl)
+  require(data.table)
+  require(lubridate)
+  require(sp)
+  URL <- Int.
+  x <- getURL(URL)
+  out <- read.csv(textConnection(x))
+  
+  out$time <- gsub("T", " ", as.character(out$time))
+  
+  out$time <-ymd_hms(out$time)
+  
+  Quake <- as.data.table(out)
+  Quake$locationSource <- as.character(Quake$locationSource)
+  
+  Quake[, "tip":= paste(type, mag, place, sep = ", " )]
+  Quake <- as.data.frame(Quake)
+  
+  
+  
+}
+
+
+ui <- bootstrapPage(
+  
+  mainPanel(
+    chartOutput("baseMap", "leaflet"),
+    tags$head(tags$script(src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js")),
+    uiOutput('heatMap'),  width = 12
+ 
+     )
+
+  )
+
+
+
+
+
+server <- function(input, output, session) {
+  
+  EQ.data.30 <-  PastMonth("http://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.csv")
+  coordinates(EQ.data.30)=~longitude+latitude
+  
+  
+  location.name <- unique(EQ.data.30$locationSource)
+  localcount <- do.call("rbind", lapply(1:length(EQ.data.30), function(x) 
+    sum(EQ.data.30$locationSource[x]==EQ.data.30$locationSource)))
+  
+  eq30 = cbind("longitude"=EQ.data.30@coords[,2],"latitude"=EQ.data.30@coords[,1] , "int"=(localcount/50)*EQ.data.30$mag)
+  eq30 = toJSONArray2(na.omit(eq30), json = F, names = F)
+  test2 <- toJSON(eq30)
+  
+  output$baseMap <- renderMap({
+    baseMap <- Leaflet$new() 
+    baseMap$setView(c(38.822430, -122.808285) ,2) 
+    baseMap$tileLayer(provider="Esri.WorldStreetMap")
+    baseMap$params$width <- 2000
+    baseMap$params$height <- 500
+    baseMap
+  })
+  
+ 
+  output$heatMap <- renderUI({
+    
+    
+    tags$body(tags$script(HTML(sprintf("
+                                       var addressPoints = %s
+                                       var heat = L.heatLayer(addressPoints).addTo(map)"
+                                       , test2
+    ))))
+  })
+}
+
+
+shinyApp(ui, server)
+```
+
